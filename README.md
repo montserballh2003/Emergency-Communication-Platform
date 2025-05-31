@@ -1,3 +1,4 @@
+Emergency Communication Platform "Nidaa Al Watan"
 frontend 
 npm install 
 npm run dev
