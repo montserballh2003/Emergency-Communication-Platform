@@ -1,26 +1,96 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import Cookies from 'js-cookie';
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
+// Helper function to clear tokens and redirect
+function handleLogout() {
+    Cookies.remove('access', { path: '/' });
+    Cookies.remove('refresh', { path: '/' });
+    if (typeof window !== 'undefined') { // Ensure window is available (for client-side redirect)
+        window.location.href = '/auth'; // Or your login page
+    }
+    // In a real application, you might want to notify other parts of the app
+    // or use a router instance if available instead of window.location.href
+}
+
 export async function fetcher<T>(
     url: string,
-    values: T,
-    method: "GET" | "POST" = "GET",
-    token?: string
-) {
-    const res = await fetch(process.env.NEXT_PUBLIC_BACKEND_URL + url, {
+    values: T | null, // Allow null for GET requests or requests with no body
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = "GET",
+    isRetry: boolean = false
+): Promise<Response> {
+    let accessToken = Cookies.get('access');
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+    if (!backendUrl) {
+        // Handle missing backend URL. Maybe throw an error or return a specific response.
+        // For now, logging an error and returning a dummy error response.
+        console.error("NEXT_PUBLIC_BACKEND_URL is not defined!");
+        return new Response(JSON.stringify({ detail: "Backend URL not configured." }), { status: 500 });
+    }
+
+    const requestOptions: RequestInit = {
         method: method,
-        body: values === null ? null : JSON.stringify(values),
         headers: {
             "Content-Type": "application/json",
-            Authorization: token ? `Bearer ${token}` : "",
         },
-    });
-    return res;
+    };
+
+    if (accessToken) {
+        (requestOptions.headers as Record<string, string>)["Authorization"] = `Bearer ${accessToken}`;
+    }
+
+    if (values !== null && (method === "POST" || method === "PUT" || method === "PATCH")) {
+        requestOptions.body = JSON.stringify(values);
+    }
+
+    let response = await fetch(backendUrl + url, requestOptions);
+
+    if (response.status === 401 && !isRetry) {
+        const refreshToken = Cookies.get('refresh');
+        if (!refreshToken) {
+            handleLogout();
+            // Return the original 401 response if no refresh token is available
+            return response;
+        }
+
+        try {
+            const refreshResponse = await fetch(backendUrl + "/auth/jwt/refresh/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ refresh: refreshToken }),
+            });
+
+            if (refreshResponse.ok) {
+                const newTokens = await refreshResponse.json();
+                Cookies.set('access', newTokens.access, { path: '/', secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+                if (newTokens.refresh) {
+                    Cookies.set('refresh', newTokens.refresh, { path: '/', secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+                }
+                // Retry the original request with the new access token
+                return fetcher(url, values, method, true); // Pass true for isRetry
+            } else {
+                // Refresh token failed (e.g. also expired or invalid)
+                handleLogout();
+                // Return the error response from the refresh attempt
+                return refreshResponse;
+            }
+        } catch (error) {
+            // Network error during refresh token attempt
+            console.error("Refresh token request failed:", error);
+            handleLogout();
+            // Return an artificial error response to signify session expiration due to refresh failure
+            return new Response(JSON.stringify({ detail: "Session expired, and token refresh failed." }), { status: 401 });
+        }
+    }
+
+    return response;
 }
+
 
 export const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -203,3 +273,36 @@ export const dataURLtoFile = (dataurl: string, filename: string): File => {
     }
     return new File([u8arr], filename, { type: mime });
 };
+
+export function getWebSocketURL(path: string): string {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    if (!backendUrl) {
+        console.error("NEXT_PUBLIC_BACKEND_URL is not defined! Falling back to ws://localhost:8000");
+        // In a real app, you might throw an error or handle this case more gracefully
+        return `ws://localhost:8000${path.startsWith('/') ? path : '/' + path}`;
+    }
+    let wsProtocol: string;
+    let baseUrl: string;
+
+    if (backendUrl.startsWith('https://')) {
+        wsProtocol = 'wss://';
+        baseUrl = backendUrl.substring('https://'.length);
+    } else if (backendUrl.startsWith('http://')) {
+        wsProtocol = 'ws://';
+        baseUrl = backendUrl.substring('http://'.length);
+    } else {
+        // Assuming a protocol-relative URL or just a host:port, default to ws
+        // This case might need refinement based on expected NEXT_PUBLIC_BACKEND_URL formats
+        console.warn("NEXT_PUBLIC_BACKEND_URL does not have a clear http/https protocol. Assuming ws.");
+        wsProtocol = 'ws://';
+        baseUrl = backendUrl;
+    }
+
+    // Remove trailing slash from baseUrl if present, as path should start with a slash
+    if (baseUrl.endsWith('/')) {
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+    }
+
+    const fullPath = path.startsWith('/') ? path : `/${path}`;
+    return `${wsProtocol}${baseUrl}${fullPath}`;
+}
