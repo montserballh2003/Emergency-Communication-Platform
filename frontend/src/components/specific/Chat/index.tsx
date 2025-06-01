@@ -1,7 +1,7 @@
 "use client";
 
 import { UserContext, UserContextType } from "@/app/(home)/layout";
-import { cn, fetcher, formatTime } from "@/lib/utils";
+import { cn, fetcher, formatTime, getWebSocketURL } from "@/lib/utils"; // Added getWebSocketURL
 import { MessageChatType, messageChat } from "@/schemas/messages";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@nextui-org/button";
@@ -48,9 +48,9 @@ function Chat() {
 
     useEffect(() => {
         if (access) {
-            const ws = new WebSocket(
-                `ws://localhost:8000/ws/chat/?token=${access}`
-            );
+            // Use getWebSocketURL to construct the WebSocket URL
+            const wsURL = `${getWebSocketURL("/ws/chat/")}?token=${access}`;
+            const ws = new WebSocket(wsURL);
 
             wsRef.current = ws;
 

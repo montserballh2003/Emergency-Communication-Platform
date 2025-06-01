@@ -3,7 +3,7 @@
 // Force dynamic rendering for this page
 export const dynamic = 'force-dynamic';
 
-import { fetcher, formatTime } from "@/lib/utils";
+import { fetcher, formatTime, getWebSocketURL } from "@/lib/utils"; // Added getWebSocketURL
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeftIcon, Send } from "lucide-react";
 import {
@@ -72,10 +72,9 @@ export default function AdminChatRoom() {
                     console.error("Error fetching room info:", err);
                 });
 
-            // Connect to WebSocket
-            const ws = new WebSocket(
-                `ws://localhost:8000/ws/chat/${room}/?token=${access}`
-            );
+            // Connect to WebSocket using getWebSocketURL
+            const wsURL = `${getWebSocketURL(`/ws/chat/${room}/`)}?token=${access}`;
+            const ws = new WebSocket(wsURL);
 
             wsRef.current = ws;
 
@@ -222,4 +221,3 @@ export default function AdminChatRoom() {
         </div>
     );
 }
-

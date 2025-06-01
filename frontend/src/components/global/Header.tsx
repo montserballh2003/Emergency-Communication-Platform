@@ -5,13 +5,25 @@ import { Button } from "@nextui-org/button";
 import { Link } from "@nextui-org/link";
 import { useContext } from "react";
 import { useCookies } from "react-cookie";
+import { useRouter } from "next/navigation"; // Added useRouter
 
 type Props = Record<string, never>;
 
 export default function Header({}: Props) {
     const [, , removeCookies] = useCookies();
+    const router = useRouter(); // Initialized useRouter
     const context = useContext(UserContext);
     const user = context?.user;
+
+    const handleLogout = () => {
+        removeCookies("access", { path: '/' }); // Ensured path option for consistency
+        removeCookies("refresh", { path: '/' }); // Ensured path option for consistency
+        // Optionally, notify backend to blacklist token if that endpoint exists
+        router.push('/auth');
+        // You might want to refresh the page or reset app state as well,
+        // for now, router.push will trigger navigation.
+        // If UserContext needs explicit reset, that would be an additional step.
+    };
 
     return (
         <header className="sticky m-8 px-6 py-4 flex justify-between backdrop-blur-sm rounded-xl z-[999]">
@@ -47,14 +59,9 @@ export default function Header({}: Props) {
                         مرحبا {user.first_name + " " + user.last_name}
                     </p>
                     <Button
-                        as={Link}
-                        href="/"
                         variant="bordered"
                         color="danger"
-                        onPress={() => {
-                            removeCookies("access");
-                            removeCookies("refresh");
-                        }}
+                        onPress={handleLogout} // Changed to call handleLogout
                     >
                         تسجيل الخروج
                     </Button>
